@@ -1,3 +1,4 @@
+
 # HTTP Multipart Body Parser
 #
 # Copyright 2011 Adam Venturella
@@ -13,7 +14,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 
 import collections
 from tempfile import TemporaryFile
@@ -115,23 +115,29 @@ class MultipartParser(object):
             temp_file.write(data.read(self.current_headers["content-length"]))
         else:
             bytes = data.readline()
+
             while not bytes[-2:] == "\r\n":
                 temp_file.write(bytes)
                 bytes = data.readline()
             
             temp_file.write(bytes.rstrip())
         
+        filesize     = temp_file.tell()
+
+        if filesize == 0:
+            self.read_boundry(data)
+            return
+
         key          = self.current_headers["content-disposition"]["name"]
         filename     = self.current_headers["content-disposition"].get("filename", "")
         content_type = self.current_headers["content-type"]
-
+        
         if key not in self.files:
-                self.files[key] = []
-        
-        filesize = temp_file.tell()
-        
+            self.files[key] = []
+
         temp_file.seek(0)
         self.files[key].append({"filename":filename, "filesize":filesize, "content-type":content_type, "data":temp_file})
+        
         self.read_boundry(data)
 
     def read_body(self, data):
