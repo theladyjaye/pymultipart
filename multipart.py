@@ -1,4 +1,3 @@
-
 # HTTP Multipart Body Parser
 #
 # Copyright 2011 Adam Venturella
@@ -15,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 import collections
 from tempfile import TemporaryFile
 
@@ -26,19 +26,18 @@ class MultipartException(Exception):
 class MultipartParser(object):
     
     def __init__(self, boundary, data):
-        self.files = {}
-        self.params  = {}
-        self.current_headers = {}
-        self.master_boundary = boundary
-        self.master_boundary_length = len(boundary)
+        self.files                  = {}
+        self.params                 = {}
+        self.current_headers        = {}
+        self.master_boundary        = "--" + boundary
+        self.master_boundary_length = len(boundary) + 2
         self.start_processing(data)
 
     def start_processing(self, data):
         self.validate_master_boundary(data)
-        #self.read_boundry(data)
     
     def end_processing(self):
-        pass
+        print(self.params)
 
     def validate_master_boundary(self, data):
         candidate = self._readboundary(data)
@@ -50,7 +49,8 @@ class MultipartParser(object):
                 self.current_headers = {}
                 self.read_headers(data)
         else:
-            self.end_processing()
+            raise MultipartException("Invalid Boundary")
+            
 
 
     def read_boundry(self, data):
@@ -141,6 +141,7 @@ class MultipartParser(object):
         self.read_boundry(data)
 
     def read_body(self, data):
+        print("ready body")
         bytes = data.readline()
         value = ""
         
