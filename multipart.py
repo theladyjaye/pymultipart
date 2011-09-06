@@ -37,7 +37,7 @@ class MultipartParser(object):
         self.validate_master_boundary(data)
     
     def end_processing(self):
-        print(self.params)
+        pass
 
     def validate_master_boundary(self, data):
         candidate = self._readboundary(data)
@@ -141,7 +141,6 @@ class MultipartParser(object):
         self.read_boundry(data)
 
     def read_body(self, data):
-        print("ready body")
         bytes = data.readline()
         value = ""
         
