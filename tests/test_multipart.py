@@ -51,3 +51,7 @@ class MultipartParserTestSuite(unittest.TestCase):
         self.assertEqual(image2.get('content-type'), 'image/jpeg')
         self.assertEqual(image2.get('filesize'), 161736)
         self.assertEqual(image2.get('filename'), 'IMG_0051.JPG')
+
+        # write the file?
+        # with open('test.jpg', 'w+b') as f:
+        #     f.write(machine.files['image1'][0]['data'].read())
