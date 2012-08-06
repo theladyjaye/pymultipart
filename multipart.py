@@ -18,7 +18,6 @@
 import collections
 from tempfile import TemporaryFile
 
-
 class MultipartException(Exception):
 
     def __init__(self, message):
@@ -62,15 +61,15 @@ class MultipartParser(object):
             self.read_header(data)
 
     def start_body(self, data):
-        disposition = self.current_headers["content-disposition"]
-        if "filename" in disposition:
+        disposition = self.current_headers.get("content-disposition")
+        if disposition and "filename" in disposition:
             self.read_file(data)
         else:
             self.read_body(data)
 
     def read_header(self, data):
         line = data.readline().decode()
-        if line != '\r\n':
+        if line and line != '\r\n':
             line = line.split(":")
             key = line[0].lower().strip()
             value = line[1].strip()
@@ -104,9 +103,9 @@ class MultipartParser(object):
 
     def read_file(self, data):
         temp_file = TemporaryFile()
-
         if "content-length" in self.current_headers:
-            temp_file.write(data.read(self.current_headers["content-length"]))
+            clen = int(self.current_headers["content-length"])
+            temp_file.write(data.read(clen))
         else:
             bytes = data.readline()
             while 1:
@@ -149,7 +148,7 @@ class MultipartParser(object):
         key = self.current_headers["content-disposition"]["name"]
 
         if key not in self.params:
-                self.params[key] = []
+            self.params[key] = []
 
         self.params[key].append(value)
         self.read_boundry(data)
