@@ -16,9 +16,8 @@
 
 __title__ = 'pymultipart'
 __version__ = '0.1'
-__build__ = 0x001306
 __author__ = 'Adam Venturella'
-__license__ = 'ISC'
+__license__ = 'Apache 2'
 __copyright__ = 'Copyright 2012 Adam Venturella'
 
 from .multipart import MultipartParser
