@@ -103,37 +103,38 @@ class MultipartParser(object):
             self.start_body(data)
 
     def read_file(self, data):
-        temp_file = TemporaryFile()
-        if "content-length" in self.current_headers:
-            clen = int(self.current_headers["content-length"])
-            temp_file.write(data.read(clen))
-        else:
-            bytes = data.readline()
-            while 1:
-                try:
-                    if bytes[:2].decode() == '--':
-                        break
-                except UnicodeDecodeError:
-                    pass
-                temp_file.write(bytes)
+        with TemporaryFile() as temp_file:
+            #temp_file = TemporaryFile()
+            if "content-length" in self.current_headers:
+                clen = int(self.current_headers["content-length"])
+                temp_file.write(data.read(clen))
+            else:
                 bytes = data.readline()
+                while 1:
+                    try:
+                        if bytes[:2].decode() == '--':
+                            break
+                    except UnicodeDecodeError:
+                        pass
+                    temp_file.write(bytes)
+                    bytes = data.readline()
 
-        filesize = temp_file.tell()
-        if filesize == 0:
-            self.read_boundry(data)
-            return
-        key = self.current_headers["content-disposition"]["name"]
-        filename = self.current_headers["content-disposition"].get("filename", "")
-        content_type = self.current_headers["content-type"]
+            filesize = temp_file.tell()
+            if filesize == 0:
+                self.read_boundry(data)
+                return
+            key = self.current_headers["content-disposition"]["name"]
+            filename = self.current_headers["content-disposition"].get("filename", "")
+            content_type = self.current_headers["content-type"]
 
-        if key not in self.files:
-            self.files[key] = []
+            if key not in self.files:
+                self.files[key] = []
 
-        temp_file.seek(0)
-        self.files[key].append({"filename": filename,
-                                "filesize": filesize,
-                                "content-type": content_type,
-                                "data": temp_file})
+            temp_file.seek(0)
+            self.files[key].append({"filename": filename,
+                                    "filesize": filesize,
+                                    "content-type": content_type,
+                                    "data": temp_file})
         self.read_header(data)
 
     def read_body(self, data):
