@@ -70,6 +70,7 @@ class MultipartParser(object):
 
     def read_header(self, data):
         line = data.readline().decode()
+
         if line and line != '\r\n':
             line = line.split(":")
             key = line[0].lower().strip()
@@ -104,7 +105,6 @@ class MultipartParser(object):
 
     def read_file(self, data):
         with TemporaryFile() as temp_file:
-            #temp_file = TemporaryFile()
             if "content-length" in self.current_headers:
                 clen = int(self.current_headers["content-length"])
                 temp_file.write(data.read(clen))
@@ -113,6 +113,7 @@ class MultipartParser(object):
                 while 1:
                     try:
                         if bytes[:2].decode() == '--':
+                            bytes = bytes.rstrip()
                             break
                     except UnicodeDecodeError:
                         pass
@@ -120,32 +121,34 @@ class MultipartParser(object):
                     bytes = data.readline()
 
             filesize = temp_file.tell()
-            if filesize == 0:
-                self.read_boundry(data)
-                return
+
             key = self.current_headers["content-disposition"]["name"]
             filename = self.current_headers["content-disposition"].get("filename", "")
             content_type = self.current_headers["content-type"]
 
-            if key not in self.files:
-                self.files[key] = []
+            files = self.files.setdefault(key, [])
 
             temp_file.seek(0)
-            self.files[key].append({"filename": filename,
-                                    "filesize": filesize,
-                                    "content-type": content_type,
-                                    "data": temp_file})
-        self.read_header(data)
+            files.append({"filename": filename,
+                          "filesize": filesize,
+                          "content-type": content_type,
+                          "data": temp_file})
+
+        if bytes[-2:] == '--':
+            self.end_processing()
+        else:
+            self.read_header(data)
 
     def read_body(self, data):
-        value = ""
+        value = collections.deque()
         bytes = data.readline().decode()
 
         while not bytes[-2:] == "\r\n":
-            value = value + bytes
+            value.append(bytes)
             bytes = data.readline().decode()
 
-        value = value + bytes.rstrip()
+        value.append(bytes.rstrip())
+        value = ''.join(value)
 
         key = self.current_headers["content-disposition"]["name"]
 

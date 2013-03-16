@@ -7,7 +7,27 @@ from pymultipart import MultipartParser
 
 class MultipartParserTestSuite(unittest.TestCase):
 
-    def test_parsing(self):
+    def test_parsing2(self):
+
+        boundary = '===============0950808015=='
+        filename = os.getcwd() + '/tests/data-circuits.txt'
+
+        with open(filename, 'rb') as data:
+            parser = MultipartParser(boundary, data)
+
+        self.assertIsNotNone(parser.params)
+        self.assertEqual(parser.params['description'][0], 'Hello World!')
+
+        file1 = parser.files.get('file')
+        self.assertIsNotNone(file1)
+
+        file1 = file1[0]
+
+        #self.assertEqual(file1.get('content-type'), 'text/plain')
+        self.assertEqual(file1.get('filesize'), 14)
+        self.assertEqual(file1.get('filename'), 'helloworld.txt')
+
+    def test_parsing1(self):
         boundary = '----WebKitFormBoundaryeqOqmwCCwUpAZEDi'
         filename = os.getcwd() + '/tests/data-multipart-wireshark.txt'
 
