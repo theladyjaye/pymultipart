@@ -15,149 +15,158 @@
 # limitations under the License.
 
 
-import collections
+from collections import deque
+import string
 from tempfile import TemporaryFile
 
 
-class MultipartException(Exception):
+class ParserControl(object):
+    START_TEXT = '\x02'
+    START_FILE = '\x1C'
+    FINALIZE = '\x10'
 
-    def __init__(self, message):
-        self.message = message
+
+def coroutine(func):
+    def start(*args, **kwargs):
+        cr = func(*args, **kwargs)
+        next(cr)
+        return cr
+    return start
+
+
+@coroutine
+def multipart_headers():
+
+    results = {}
+
+    while True:
+
+        line = yield
+
+        if line == ParserControl.FINALIZE:
+            yield results
+            results = {}
+            continue
+
+        parts = line.split(':', 1)
+
+        if len(parts) != 2:
+            continue
+
+        key = parts[0].strip().lower()
+        header = results.setdefault(key, {})
+        options = deque(map(string.strip, parts[1].split(';')))
+        header['type'] = options.popleft()
+        header['params'] = {}
+
+        while options:
+            option = options.popleft().replace('\"', '')
+            try:
+                option_k, option_v = option.split('=')
+            except ValueError:
+                continue
+
+            header['params'][option_k] = option_v
+
+
+@coroutine
+def multipart_body():
+    result = None
+    action = None
+    context = None
+
+    while True:
+        data = yield
+
+        if data == ParserControl.FINALIZE:
+            if context == ParserControl.START_TEXT:
+                body = ''.join(result)
+            elif context == ParserControl.START_FILE:
+
+                filesize = result.tell() - 2
+                result.seek(0)
+                result.truncate(filesize)
+
+                body = {'filename': None,
+                        'content-type': None,
+                        'filesize': filesize,
+                        'data': result}
+
+            result = None
+            action = None
+            yield body
+            continue
+
+        elif data == ParserControl.START_TEXT:
+            result = []
+            action = result.append
+            context = data
+            continue
+
+        elif data == ParserControl.START_FILE:
+            result = TemporaryFile()
+            action = result.write
+            context = data
+            continue
+
+        if context == ParserControl.START_TEXT:
+            if data[-2:] == '\r\n':
+                data = data[:-2]
+
+        action(data)
+
+
+@coroutine
+def multipart_stream(boundary, header_parser, body_parser, params, files):
+    data = None
+    headers = None
+
+    while True:
+        line = yield
+
+        if line == '\r\n':
+            headers = data.send(ParserControl.FINALIZE)
+            meta = headers['content-disposition']['params']
+            data.send(None)
+            data = body_parser
+            data.send(ParserControl.START_TEXT if 'filename' not in meta
+                                               else ParserControl.START_FILE)
+            continue
+
+        elif line.startswith(boundary):
+            if headers:
+                meta = headers['content-disposition']['params']
+                body = data.send(ParserControl.FINALIZE)
+                data.send(None)
+
+                if 'filename' in meta:
+                    target = files.setdefault(meta['name'], [])
+                    body['filename'] = meta['filename']
+                    body['content-type'] = headers['content-type']['type']
+                    target.append(body)
+                else:
+                    target = params.setdefault(meta['name'], [])
+                    target.append(body)
+
+            data = header_parser
+            headers = {}
+            continue
+
+        data.send(line)
 
 
 class MultipartParser(object):
 
-    def __init__(self, boundary, data):
-        self.files = {}
-        self.params = {}
-        self.current_headers = {}
-        self.master_boundary = "--" + boundary
-        self.master_boundary_length = len(boundary) + 2
-        self.start_processing(data)
+    @staticmethod
+    def from_boundary(multipart_boundary, data, params, files):
+        boundary = '--' + multipart_boundary
 
-    def start_processing(self, data):
-        self.validate_master_boundary(data)
+        protocol = multipart_stream(
+            boundary,
+            multipart_headers(),
+            multipart_body(),
+            params,
+            files)
 
-    def end_processing(self):
-        pass
-
-    def validate_master_boundary(self, data):
-        candidate = self._readboundary(data)
-        if candidate == self.master_boundary:
-            if data.read(2) == b'--':
-                self.end_processing()
-            else:
-                self.current_headers = {}
-                self.read_header(data)
-        else:
-            raise MultipartException("Invalid Boundary")
-
-    def read_boundry(self, data):
-        self._readboundary(data)
-
-        if data.read(2) == b'--':
-            self.end_processing()
-        else:
-            self.current_headers = {}
-            self.read_header(data)
-
-    def start_body(self, data):
-        disposition = self.current_headers.get("content-disposition")
-        if disposition and "filename" in disposition:
-            self.read_file(data)
-        else:
-            self.read_body(data)
-
-    def read_header(self, data):
-        line = data.readline().decode()
-
-        if line and line != '\r\n':
-            line = line.split(":")
-            key = line[0].lower().strip()
-            value = line[1].strip()
-
-            self.current_headers[key] = None
-
-            if key == "content-disposition":
-                self.current_headers[key] = {}
-                parts = collections.deque(value.split(";"))
-                disposition_type = parts.popleft()
-
-                if disposition_type != "form-data":
-                    # RFC 2388 requires the disposition type be "form-data"
-                    # anything else is a no op and we should skip this segment/part
-                    # http://tools.ietf.org/html/rfc2388
-                    raise MultipartException("Invalid Content-Disposition, found {0} expected form-data".format(disposition_type))
-
-                while 1:
-                    try:
-                        value = parts.popleft().strip().replace("\"", "")
-                        k, v = value.split("=")
-                        self.current_headers[key][k] = v
-                    except IndexError:
-                        break
-            else:
-                self.current_headers[key] = value
-
-            self.read_header(data)
-        else:
-            self.start_body(data)
-
-    def read_file(self, data):
-        with TemporaryFile() as temp_file:
-            if "content-length" in self.current_headers:
-                clen = int(self.current_headers["content-length"])
-                temp_file.write(data.read(clen))
-            else:
-                bytes = data.readline()
-                while 1:
-                    try:
-                        if bytes[:2].decode() == '--':
-                            bytes = bytes.rstrip()
-                            break
-                    except UnicodeDecodeError:
-                        pass
-                    temp_file.write(bytes)
-                    bytes = data.readline()
-
-            filesize = temp_file.tell()
-
-            key = self.current_headers["content-disposition"]["name"]
-            filename = self.current_headers["content-disposition"].get("filename", "")
-            content_type = self.current_headers["content-type"]
-
-            files = self.files.setdefault(key, [])
-
-            temp_file.seek(0)
-            files.append({"filename": filename,
-                          "filesize": filesize,
-                          "content-type": content_type,
-                          "data": temp_file})
-
-        if bytes[-2:] == '--':
-            self.end_processing()
-        else:
-            self.read_header(data)
-
-    def read_body(self, data):
-        value = collections.deque()
-        bytes = data.readline().decode()
-
-        while not bytes[-2:] == "\r\n":
-            value.append(bytes)
-            bytes = data.readline().decode()
-
-        value.append(bytes.rstrip())
-        value = ''.join(value)
-
-        key = self.current_headers["content-disposition"]["name"]
-
-        if key not in self.params:
-            self.params[key] = []
-
-        self.params[key].append(value)
-        self.read_boundry(data)
-
-    def _readboundary(self, data):
-        boundary = data.read(self.master_boundary_length).decode()
-        return boundary
+        for line in iter(data.readline, ''):
+            protocol.send(line)
