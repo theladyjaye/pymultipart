@@ -120,6 +120,7 @@ def multipart_body():
 def multipart_stream(boundary, header_parser, body_parser, params, files):
     data = None
     headers = None
+    boundry_len = len(boundary)
 
     while True:
         line = yield
@@ -133,7 +134,7 @@ def multipart_stream(boundary, header_parser, body_parser, params, files):
                                                else ParserControl.START_FILE)
             continue
 
-        elif line.startswith(boundary):
+        elif line[:boundry_len] == boundary:
             if headers:
                 meta = headers['content-disposition']['params']
                 body = data.send(ParserControl.FINALIZE)
